@@ -6,7 +6,8 @@ import cv2
 from PIL import Image
 from math import floor, sqrt
 from scipy.stats import kurtosis, skew
-
+import os
+import shutil
 
 def is_point_inside(dx, dy, R):
     if sqrt(dx ** 2 + dy ** 2) < R:
@@ -46,8 +47,8 @@ def daugman_normalizaiton(image, row, height, width):
             Yo = center_y_2 + r_out * np.sin(theta)
 
             # the matched cartesian coordinates for the polar coordinates
-            Xc = (1 - r_pro) * Xi + r_pro * Xo
-            Yc = (1 - r_pro) * Yi + r_pro * Yo
+            Xc = floor((1 - r_pro) * Xi + r_pro * Xo)
+            Yc = floor((1 - r_pro) * Yi + r_pro * Yo)
 
             upper_dx = abs(Xc - upper_lid_x_2)
             upper_dy = abs(Yc - upper_lid_y_2)
@@ -63,7 +64,11 @@ def daugman_normalizaiton(image, row, height, width):
                 mask_color = np.array([255, 255,255])
             else:
                 mask_color = np.zeros(3)
-            color = image[int(Yc)][int(Xc)]  # color of the pixel
+
+            if Yc >= 280.0:
+                color = image[279][int(Xc)]
+            else:
+                color = image[int(Yc)][int(Xc)]  # color of the pixel
 
             mask[j][i] = mask_color
             flat[j][i] = color
@@ -74,73 +79,187 @@ def create_gabor_filter_bank(image):
     bank = pd.DataFrame()
     bank['Original image'] = image.reshape(-1)
     num = 1
-    for theta in range(4):
-        theta = theta / 4 * np.pi
-        for sigma in (3, 5):
-            for lambd in np.arange(np.pi / 4, np.pi, np.pi / 4):
-                for gamma in (0.25, 0.5):
-                    label = 'Gabor' + str(num)
+    sizes = [(61,61), (51,51), (41,41), (31,31), (21,21)]
 
-                    # Apply Gabor Kernel on the image
-                    g_kernel = cv2.getGaborKernel((21, 21), sigma, theta, lambd, gamma, 0, ktype=cv2.CV_32F)
-                    filtered_image = cv2.filter2D(image, cv2.CV_8UC3, g_kernel)
-                    plt.imshow(g_kernel)
-                    plt.show()
-                    plt.imshow(filtered_image)
-                    plt.show()
+    # local_energy = np.zeros((60,360))
+    # mean_amplitude = np.zeros((60,360))
+    local_energy = []
+    mean_amplitude = []
 
-                    # Thresholding the image
-                    ret, thresholded_image = cv2.threshold(filtered_image, 127, 255, cv2.THRESH_BINARY)
-                    # plt.imshow(thresholded_image)
-                    # plt.show()
+    for ksize in sizes:
+        for theta in range(8):
+            theta = theta / 8 * np.pi
 
-                    # Add filter to the bank
-                    reshaped_filtered_img = thresholded_image.reshape(-1)
-                    bank[label] = reshaped_filtered_img
+            label = 'Gabor' + str(num)
+            # Apply Gabor Kernel on the image
+            g_kernel = cv2.getGaborKernel(ksize, 6.0, theta, 8.0, 0.5, 0, ktype=cv2.CV_32F)
+            filtered_image = cv2.filter2D(image, cv2.CV_8UC3, g_kernel)
+            # plt.imshow(g_kernel)
+            # plt.show()
+            # plt.imshow(filtered_image)
+            # plt.show()
 
-                    num += 1
-    return bank
+            # Thresholding the image
+            ret, thresholded_image = cv2.threshold(filtered_image, 127, 255, cv2.THRESH_BINARY)
+            # plt.imshow(thresholded_image)
+            # plt.show()
+
+            # Add filter to the bank
+            reshaped_filtered_img = thresholded_image.reshape(-1)
+            bank[label] = reshaped_filtered_img
+
+            # local_energy += np.square(thresholded_image.astype(float))
+            local_energy.append(sum(sum(np.square(thresholded_image.astype(float)))))
+            # mean_amplitude += np.abs(thresholded_image)
+            mean_amplitude.append(sum(sum(np.abs(thresholded_image.astype(float)))))
+            num += 1
+
+    image_features = local_energy + mean_amplitude
+    return bank, image_features
 
 
-def main():
+def read_images():
     annotation = pd.read_csv('duhovky/iris_annotation.csv')
     print(annotation)
+
+    images_dict = {}
+    masks_dict = {}
+
     for i, row in annotation.iterrows():
         file = 'duhovky/' + str(row['image'])
         img = imread(file)
 
-        # eye_center_1 = tuple([row[' center_x_1'], row[' center_y_1']])
-        # cv2.circle(img, eye_center_1, row[' polomer_1'], (255,0,0), thickness=2)
-        # eye_center_2 = tuple([row[' center_x_2'], row[' center_y_2']])
-        # cv2.circle(img, eye_center_2, row[' polomer_2'], (255, 0, 0), thickness=2)
+        if not img is None:
+            image, mask = daugman_normalizaiton(img, row, 60, 360)
+            images_dict[row['image']] = image
+            masks_dict[row['image']] = mask
 
-        image, mask = daugman_normalizaiton(img, row, 60, 360)
+            # plt.imshow(image, cmap='gray')
+            # plt.show()
+            # plt.imshow(mask, cmap='gray')
+            # plt.show()
 
-        # plt.imshow(image, cmap='gray')
-        # plt.show()
-        # plt.imshow(mask, cmap='gray')
-        # plt.show()
+            # non_black_pixels_mask = np.any(mask != [0, 0, 0], axis=-1)
+            # black_pixels_mask = np.all(mask == [0, 0, 0], axis=-1)
+            # image[black_pixels_mask] = [255,255,255]
 
-        # non_black_pixels_mask = np.any(mask != [0, 0, 0], axis=-1)
-        # black_pixels_mask = np.all(mask == [0, 0, 0], axis=-1)
-        # image[black_pixels_mask] = [255,255,255]
+            # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            # image = cv2.equalizeHist(image)
+            # plt.imshow(image, cmap='gray')
+            # plt.show()
 
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        image = cv2.equalizeHist(image)
-        # plt.imshow(image, cmap='gray')
-        # plt.show()
+            # gabor_filters_bank, image_features = create_gabor_filter_bank(image)
 
-        gabor_filters_bank = create_gabor_filter_bank(image)
+    images = pd.DataFrame(images_dict.items(), columns=['image', 'bytes'])
+    masks = pd.DataFrame(masks_dict.items(), columns=['image', 'bytes'])
 
-        print('end of file')
-        # g_kernel = cv2.getGaborKernel((151, 151), 6.0, theta, 10.0, 0.75, 0, ktype=cv2.CV_32F)
-        # filtered_img = cv2.filter2D(image, cv2.CV_8UC3, g_kernel)
+    images.to_pickle('cartesian_images')
+    masks.to_pickle('cartesian_masks')
 
-        # imshow('face detection', filtered_img)
-        # waitKey()
 
-        # h, w = g_kernel.shape[:2]
-        # g_kernel = cv2.resize(g_kernel, (3 * w, 3 * h), interpolation=cv2.INTER_CUBIC)
+def find_next_subject(df, index, image_number):
+    while index < len(df) and df.iloc[index]['image'].strip().split("/")[0] == image_number:
+        index += 1
+    return index
 
+
+def create_impostor_pairs(images):
+    false_pairs = {}
+
+    index = 0
+    j_index = 0
+    counter = 0
+    while index < len(images) - 1:
+        file_path = images.iloc[index]['image']
+        subject = file_path.strip().split("/")[0]
+
+        j_index = index
+        while j_index < len(images):
+            next_file_path = images.iloc[j_index]['image']
+            next_subject = next_file_path.strip().split("/")[0]
+
+            j_index = find_next_subject(images, j_index, next_subject)
+            if j_index > len(images) - 2:
+                break
+            else:
+                next_file_path = images.iloc[j_index]['image']
+                next_subject = next_file_path.strip().split("/")[0]
+
+            if subject != next_subject:
+                image_pair = {
+                    "image1": images.iloc[index]['image'],
+                    "image2": images.iloc[j_index]['image'],
+                }
+                false_pairs[counter] = image_pair
+
+                counter += 1
+                j_index += 1
+        index = find_next_subject(images, index, subject)
+
+    false_pairs_df = pd.DataFrame.from_dict(false_pairs, orient='index')
+    return false_pairs_df
+
+def create_true_pairs(images):
+    true_pairs = {}
+
+    index = 0
+    counter = 0
+    while index < len(images) - 1:
+        next_index = index + 1
+
+        file_path = images.iloc[index]['image']
+        subject = file_path.strip().split("/")[0]
+        eye_side = file_path.strip().split("/")[1]
+
+        next_file_path = images.iloc[next_index]['image']
+        next_subject = next_file_path.strip().split("/")[0]
+        next_eye_side = next_file_path.strip().split("/")[1]
+
+        while subject == next_subject and eye_side == next_eye_side:
+            image_pair = {
+                "image1": images.iloc[index]['image'],
+                "image2": images.iloc[next_index]['image'],
+            }
+            true_pairs[counter] = image_pair
+
+            counter += 1
+            next_index += 1
+            if next_index > len(images) - 1:
+                break
+            next_subject = images.iloc[next_index]['image'].split("/")[0]
+            next_eye_side = images.iloc[next_index]['image'].split("/")[1]
+
+        if next_index > len(images) - 1:
+            break
+
+        index += 1
+
+    true_pairs_df = pd.DataFrame.from_dict(true_pairs, orient='index')
+    return true_pairs_df
+
+
+def main():
+    # read_images()
+
+    images = pd.read_pickle('cartesian_images.csv')
+    # print(images.head())
+    # for i, row in images.iterrows():
+    #     plt.imshow(row['bytes'])
+    #     plt.show()
+
+    # masks = pd.read_pickle('cartesian_masks.csv')
+    # print(masks.head())
+    # for i, row in masks.iterrows():
+    #     plt.imshow(row['bytes'])
+    #     plt.show()
+
+    # true_pairs_df = create_true_pairs(images)
+    # true_pairs_df.to_csv('true_pairs.csv',index=False)
+    # impostor_pairs_df = create_impostor_pairs(images)
+    # impostor_pairs_df.to_csv('impostor_pairs.csv',index=False)
+
+    true_pairs_df = pd.read_csv('true_pairs.csv')
+    impostor_pairs_df = pd.read_csv('impostor_pairs.csv')
+    print(len(true_pairs_df))
 
 main()
