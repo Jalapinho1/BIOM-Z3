@@ -9,6 +9,10 @@ from scipy.stats import kurtosis, skew
 import os
 import shutil
 
+from evaluation_hamming import evaluate_with_hamming
+from evaluation_svm import evaluate_with_svm
+
+
 def is_point_inside(dx, dy, R):
     if sqrt(dx ** 2 + dy ** 2) < R:
         return True
@@ -76,8 +80,7 @@ def daugman_normalizaiton(image, row, height, width):
 
 
 def create_gabor_filter_bank(image):
-    bank = pd.DataFrame()
-    bank['Original image'] = image.reshape(-1)
+
     num = 1
     sizes = [(61,61), (51,51), (41,41), (31,31), (21,21)]
 
@@ -90,7 +93,6 @@ def create_gabor_filter_bank(image):
         for theta in range(8):
             theta = theta / 8 * np.pi
 
-            label = 'Gabor' + str(num)
             # Apply Gabor Kernel on the image
             g_kernel = cv2.getGaborKernel(ksize, 6.0, theta, 8.0, 0.5, 0, ktype=cv2.CV_32F)
             filtered_image = cv2.filter2D(image, cv2.CV_8UC3, g_kernel)
@@ -104,10 +106,6 @@ def create_gabor_filter_bank(image):
             # plt.imshow(thresholded_image)
             # plt.show()
 
-            # Add filter to the bank
-            reshaped_filtered_img = thresholded_image.reshape(-1)
-            bank[label] = reshaped_filtered_img
-
             # local_energy += np.square(thresholded_image.astype(float))
             local_energy.append(sum(sum(np.square(thresholded_image.astype(float)))))
             # mean_amplitude += np.abs(thresholded_image)
@@ -115,7 +113,7 @@ def create_gabor_filter_bank(image):
             num += 1
 
     image_features = local_energy + mean_amplitude
-    return bank, image_features
+    return image_features
 
 
 def read_images():
@@ -124,6 +122,7 @@ def read_images():
 
     images_dict = {}
     masks_dict = {}
+    gabor_filters_bank_dict = {}
 
     for i, row in annotation.iterrows():
         file = 'duhovky/' + str(row['image'])
@@ -131,7 +130,13 @@ def read_images():
 
         if not img is None:
             image, mask = daugman_normalizaiton(img, row, 60, 360)
+
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            image = cv2.equalizeHist(image)
+
             images_dict[row['image']] = image
+
+            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
             masks_dict[row['image']] = mask
 
             # plt.imshow(image, cmap='gray')
@@ -143,18 +148,16 @@ def read_images():
             # black_pixels_mask = np.all(mask == [0, 0, 0], axis=-1)
             # image[black_pixels_mask] = [255,255,255]
 
-            # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # image = cv2.equalizeHist(image)
-            # plt.imshow(image, cmap='gray')
-            # plt.show()
-
-            # gabor_filters_bank, image_features = create_gabor_filter_bank(image)
+            image_features = create_gabor_filter_bank(image)
+            gabor_filters_bank_dict[row['image']] = image_features
 
     images = pd.DataFrame(images_dict.items(), columns=['image', 'bytes'])
     masks = pd.DataFrame(masks_dict.items(), columns=['image', 'bytes'])
+    gabor_filters_bank = pd.DataFrame(gabor_filters_bank_dict.items(), columns=['image', 'bytes'])
 
-    images.to_pickle('cartesian_images')
-    masks.to_pickle('cartesian_masks')
+    images.to_pickle('cartesian_images.csv')
+    masks.to_pickle('cartesian_masks.csv')
+    gabor_filters_bank.to_pickle('gabor_filter_bank.csv')
 
 
 def find_next_subject(df, index, image_number):
@@ -247,11 +250,14 @@ def main():
     #     plt.imshow(row['bytes'])
     #     plt.show()
 
-    # masks = pd.read_pickle('cartesian_masks.csv')
+    masks = pd.read_pickle('cartesian_masks.csv')
     # print(masks.head())
     # for i, row in masks.iterrows():
     #     plt.imshow(row['bytes'])
     #     plt.show()
+
+    # gabor_filter_bank = pd.read_pickle('gabor_filter_bank.csv')
+    # print(gabor_filter_bank.head())
 
     # true_pairs_df = create_true_pairs(images)
     # true_pairs_df.to_csv('true_pairs.csv',index=False)
@@ -261,5 +267,10 @@ def main():
     true_pairs_df = pd.read_csv('true_pairs.csv')
     impostor_pairs_df = pd.read_csv('impostor_pairs.csv')
     print(len(true_pairs_df))
+
+    # evaluate_with_svm(gabor_filter_bank, true_pairs_df, impostor_pairs_df)
+    evaluate_with_hamming(images, masks, true_pairs_df, impostor_pairs_df)
+
+
 
 main()
