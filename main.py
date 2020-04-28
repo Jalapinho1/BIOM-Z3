@@ -8,9 +8,7 @@ from math import floor, sqrt
 from scipy.stats import kurtosis, skew
 import os
 import shutil
-
 from evaluation_hamming import evaluate_with_hamming
-from evaluation_svm import evaluate_with_svm
 
 
 def is_point_inside(dx, dy, R):
@@ -144,10 +142,6 @@ def read_images():
             # plt.imshow(mask, cmap='gray')
             # plt.show()
 
-            # non_black_pixels_mask = np.any(mask != [0, 0, 0], axis=-1)
-            # black_pixels_mask = np.all(mask == [0, 0, 0], axis=-1)
-            # image[black_pixels_mask] = [255,255,255]
-
             image_features = create_gabor_filter_bank(image)
             gabor_filters_bank_dict[row['image']] = image_features
 
@@ -170,7 +164,6 @@ def create_impostor_pairs(images):
     false_pairs = {}
 
     index = 0
-    j_index = 0
     counter = 0
     while index < len(images) - 1:
         file_path = images.iloc[index]['image']
@@ -201,6 +194,7 @@ def create_impostor_pairs(images):
 
     false_pairs_df = pd.DataFrame.from_dict(false_pairs, orient='index')
     return false_pairs_df
+
 
 def create_true_pairs(images):
     true_pairs = {}
@@ -270,7 +264,6 @@ def main():
 
     # evaluate_with_svm(gabor_filter_bank, true_pairs_df, impostor_pairs_df)
     evaluate_with_hamming(images, masks, true_pairs_df, impostor_pairs_df)
-
 
 
 main()

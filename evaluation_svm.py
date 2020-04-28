@@ -7,15 +7,16 @@ from sklearn.metrics import plot_roc_curve, confusion_matrix
 from sklearn.model_selection import train_test_split
 import numpy as np
 
-def create_one_dataset_from_pairs(gabor_filter_banks, pairs, is_true_pairs):
+
+def create_one_dataset_from_pairs(images_gabor_filters, pairs, is_true_pairs):
     pairs_distance = pd.DataFrame(columns=['features', 'label'])
 
     united_feature_list = []
     for i, row in pairs.iterrows():
         image1 = row['image1']
         image2 = row['image2']
-        features_image1 = gabor_filter_banks[gabor_filter_banks['image'] == image1]['bytes'].to_numpy()
-        features_image2 = gabor_filter_banks[gabor_filter_banks['image'] == image2]['bytes'].to_numpy()
+        features_image1 = images_gabor_filters[images_gabor_filters['image'] == image1]['bytes'].to_numpy()
+        features_image2 = images_gabor_filters[images_gabor_filters['image'] == image2]['bytes'].to_numpy()
         united_features = np.array(features_image1[0]) - np.array(features_image2[0])
         united_feature_list.append(united_features)
 
@@ -47,11 +48,6 @@ def evaluate_with_svm(images_gabor_filters, true_pairs, impostor_pairs):
 
     final_df = pd.concat([true_pairs_distances, impostor_pairs_distances], ignore_index=True)
     final_df['features'] = final_df['features'].apply(lambda x: np.array(x))
-
-    for i, row in final_df.iterrows():
-        length = len(row['features'])
-        if length != 80:
-            print('NOT EQUAL')
 
     X_train, X_test, y_train, y_test = train_test_split(final_df['features'], final_df['label'],
                                                         test_size=0.33, shuffle=True, random_state=101)
