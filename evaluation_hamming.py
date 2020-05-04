@@ -5,7 +5,6 @@ from sklearn import metrics
 from sklearn.svm import SVC
 import numpy as np
 import cv2
-from scipy.spatial import distance
 from sklearn import metrics
 from operator import truediv
 from math import floor

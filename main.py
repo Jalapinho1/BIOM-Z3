@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from cv2 import imread, imshow, waitKey, CascadeClassifier, rectangle
+from cv2 import imread, rectangle
 import cv2
 from PIL import Image
 from math import floor, sqrt
@@ -10,7 +10,7 @@ import os
 import shutil
 from evaluation_hamming import evaluate_with_hamming
 from evaluation_svm import evaluate_with_svm
-from extract_features_cnn import extract_feautures_cnn_resnet, extract_feautures_cnn_vgg
+from extract_features_cnn import extract_feautures_cnn_resnet
 
 
 def is_point_inside(dx, dy, R):
@@ -102,27 +102,6 @@ def apply_gabor_filter(ksize, sigma, theta, lambda_i, gamma, image):
 
 
 def create_gabor_filter_bank(image):
-    sizes = [(61, 61), (51, 51), (41, 41), (31, 31), (21, 21)]
-
-    local_energy = []
-    mean_amplitude = []
-
-    for ksize in sizes:
-        for theta in range(8):
-            theta = theta / 8 * np.pi
-
-            g_kernel = cv2.getGaborKernel(ksize, 8.0, theta, 8.0, 0.5, 0, ktype=cv2.CV_32F)
-            filtered_image = cv2.filter2D(image, cv2.CV_8UC3, g_kernel)
-            ret, thresholded_image = cv2.threshold(filtered_image, 127, 255, cv2.THRESH_BINARY)
-
-            local_energy.append(sum(sum(np.square(thresholded_image.astype(float)))))
-            mean_amplitude.append(sum(sum(np.abs(thresholded_image.astype(float)))))
-
-    image_features = local_energy + mean_amplitude
-    return image_features
-
-
-def create_gabor_filter_bank_version2(image):
     sizes = [(51, 51), (41, 41), (31, 31)]
     sigmas = [6.0, 7.0, 8.0]
 
@@ -193,8 +172,8 @@ def process_images():
     masks = pd.DataFrame(masks_dict.items(), columns=['image', 'bytes'])
     gabor_filters_bank = pd.DataFrame(gabor_filters_bank_dict.items(), columns=['image', 'bytes'])
 
-    # images.to_pickle('cartesian_images.csv')
-    # masks.to_pickle('cartesian_masks.csv')
+    images.to_pickle('cartesian_images.csv')
+    masks.to_pickle('cartesian_masks.csv')
     gabor_filters_bank.to_pickle('gabor_filter_bank.csv')
 
 
@@ -287,44 +266,30 @@ def main():
     #  ----------------- Zadanie 4 ----------------------
 
     images = pd.read_pickle('cartesian_images.csv')
-    # print(images.head())
-    # for i, row in images.iterrows():
-    #     plt.imshow(row['bytes'])
-    #     plt.show()
+    print(images.head())
 
     masks = pd.read_pickle('cartesian_masks.csv')
-    # print(masks.head())
-    # for i, row in masks.iterrows():
-    #     plt.imshow(row['bytes'])
-    #     plt.show()
+    print(masks.head())
 
-    # gabor_filter_bank = pd.read_pickle('gabor_filter_bank.csv')
-    # print(gabor_filter_bank.head())
-
-    # cnn_features = extract_feautures_cnn_vgg(images, masks)
-    # cnn_features.to_pickle("cnn_features_vgg.csv")
-    # cnn_features = pd.read_pickle('cnn_features_vgg.csv')
+    gabor_filter_bank = pd.read_pickle('gabor_filter_bank.csv')
+    print(gabor_filter_bank.head())
 
     cnn_features = extract_feautures_cnn_resnet(images, masks)
     cnn_features.to_pickle("cnn_features_resnet.csv")
     cnn_features = pd.read_pickle('cnn_features_resnet.csv')
 
-    # hog_features = extract_features_hog()
-    # hog_features.to_pickle("hog_features.csv")
-    # hog_features = pd.read_pickle('hog_features.csv')
-
-    # true_pairs_df = create_true_pairs(images)
-    # true_pairs_df.to_csv('true_pairs.csv',index=False)
-    # impostor_pairs_df = create_impostor_pairs(images)
-    # impostor_pairs_df.to_csv('impostor_pairs.csv',index=False)
+    true_pairs_df = create_true_pairs(images)
+    true_pairs_df.to_csv('true_pairs.csv',index=False)
+    impostor_pairs_df = create_impostor_pairs(images)
+    impostor_pairs_df.to_csv('impostor_pairs.csv',index=False)
 
     true_pairs_df = pd.read_csv('true_pairs.csv')
     impostor_pairs_df = pd.read_csv('impostor_pairs.csv')
     print(len(true_pairs_df))
 
     evaluate_with_hamming(images, masks, true_pairs_df, impostor_pairs_df)
-    # evaluate_with_svm(gabor_filter_bank, true_pairs_df, impostor_pairs_df, "GaborFilters")
     evaluate_with_svm(cnn_features, true_pairs_df, impostor_pairs_df, "CNN")
+    evaluate_with_svm(gabor_filter_bank, true_pairs_df, impostor_pairs_df, "GaborFilters")
 
 
 main()

@@ -67,7 +67,6 @@ def extract_feautures_cnn_resnet(images, masks):
     for i, row in images.iterrows():
         img_data = row['bytes']
         mask_data = masks.iloc[i]['bytes']
-        res = cv2.bitwise_and(img_data, img_data, mask=mask_data)
         img_data[mask_data == 0] = [0]
 
         # 3 channels greyscale

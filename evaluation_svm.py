@@ -62,23 +62,8 @@ def evaluate_with_svm(images_features, true_pairs, impostor_pairs, feature_type)
     clf.fit(list(X_train), y_train)
 
     y_pred = clf.predict(list(X_test))
-
-    # if feature_type == "GaborFilters":
-    #     clf.fit(list(X_train), y_train)
-    # else:
-    #     clf.fit(np.array(X_train).reshape(-1, 1), y_train)
-
-    # if feature_type == "GaborFilters":
-    #     y_pred = clf.predict(list(X_test))
-    # else:
-    #     y_pred = clf.predict(np.array(X_test).reshape(-1, 1))
-
     print("Accuracy:", metrics.accuracy_score(y_test, y_pred))
 
-    # if feature_type == "GaborFilters":
-    #     svc_disp = plot_roc_curve(clf, list(X_test), y_test)
-    # else:
-    #     svc_disp = plot_roc_curve(clf, np.array(X_test).reshape(-1, 1), y_test)
     svc_disp = plot_roc_curve(clf, list(X_test), y_test)
     plt.grid(True)
     plt.show()
