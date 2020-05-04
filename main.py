@@ -9,6 +9,8 @@ from scipy.stats import kurtosis, skew
 import os
 import shutil
 from evaluation_hamming import evaluate_with_hamming
+from evaluation_svm import evaluate_with_svm
+from extract_features_cnn import extract_feautures_cnn_resnet, extract_feautures_cnn_vgg
 
 
 def is_point_inside(dx, dy, R):
@@ -18,7 +20,7 @@ def is_point_inside(dx, dy, R):
         return False
 
 
-def daugman_normalizaiton(image, row, height, width):
+def daugman_rubbersheet_normalization(image, row, height, width):
     center_x_1 = row[' center_x_1']
     center_y_1 = row[' center_y_1']
     r_in = row[' polomer_1']
@@ -33,8 +35,8 @@ def daugman_normalizaiton(image, row, height, width):
     upper_lid_y_2 = row['center_y_4']
     upper_lid_radius = row[' polomer_4']
 
-    flat = np.zeros((height,width, 3), np.uint8)
-    mask = np.zeros((height,width, 3), np.uint8)
+    flat = np.zeros((height, width, 3), np.uint8)
+    mask = np.zeros((height, width, 3), np.uint8)
 
     thetas = np.arange(0, 2 * np.pi, 2 * np.pi / width)  # Theta values
     for i in range(width):
@@ -70,20 +72,38 @@ def daugman_normalizaiton(image, row, height, width):
             if Yc >= 280.0:
                 color = image[279][int(Xc)]
             else:
-                color = image[int(Yc)][int(Xc)]  # color of the pixel
+                color = image[int(Yc)][int(Xc)]
 
             mask[j][i] = mask_color
             flat[j][i] = color
     return flat, mask
 
 
+def apply_gabor_filter(ksize, sigma, theta, lambda_i, gamma, image):
+    plt.imshow(image, cmap='Greys_r')
+    plt.title('Original image')
+    plt.show()
+
+    g_kernel = cv2.getGaborKernel(ksize, sigma, theta, lambda_i, gamma, 0, ktype=cv2.CV_32F)
+    header = f"KSize={ksize}, Sigma={sigma}, Theta={floor(theta * 100)/100}, Lambda={lambda_i}, Gamma={gamma}"
+    print(header)
+
+    filtered_image = cv2.filter2D(image, cv2.CV_8UC3, g_kernel)
+    plt.imshow(filtered_image, cmap='Greys_r')
+    plt.title('Gabor filter')
+    plt.show()
+
+    ret, thresholded_image = cv2.threshold(filtered_image, 127, 255, cv2.THRESH_BINARY)
+    plt.imshow(thresholded_image, cmap='Greys_r')
+    plt.title('Thresholded Gabor filter')
+    plt.show()
+
+    return thresholded_image
+
+
 def create_gabor_filter_bank(image):
+    sizes = [(61, 61), (51, 51), (41, 41), (31, 31), (21, 21)]
 
-    num = 1
-    sizes = [(61,61), (51,51), (41,41), (31,31), (21,21)]
-
-    # local_energy = np.zeros((60,360))
-    # mean_amplitude = np.zeros((60,360))
     local_energy = []
     mean_amplitude = []
 
@@ -91,32 +111,41 @@ def create_gabor_filter_bank(image):
         for theta in range(8):
             theta = theta / 8 * np.pi
 
-            # Apply Gabor Kernel on the image
-            g_kernel = cv2.getGaborKernel(ksize, 6.0, theta, 8.0, 0.5, 0, ktype=cv2.CV_32F)
+            g_kernel = cv2.getGaborKernel(ksize, 8.0, theta, 8.0, 0.5, 0, ktype=cv2.CV_32F)
             filtered_image = cv2.filter2D(image, cv2.CV_8UC3, g_kernel)
-            # plt.imshow(g_kernel)
-            # plt.show()
-            # plt.imshow(filtered_image)
-            # plt.show()
-
-            # Thresholding the image
             ret, thresholded_image = cv2.threshold(filtered_image, 127, 255, cv2.THRESH_BINARY)
-            # plt.imshow(thresholded_image)
-            # plt.show()
 
-            # local_energy += np.square(thresholded_image.astype(float))
             local_energy.append(sum(sum(np.square(thresholded_image.astype(float)))))
-            # mean_amplitude += np.abs(thresholded_image)
             mean_amplitude.append(sum(sum(np.abs(thresholded_image.astype(float)))))
-            num += 1
 
     image_features = local_energy + mean_amplitude
     return image_features
 
 
-def read_images():
+def create_gabor_filter_bank_version2(image):
+    sizes = [(51, 51), (41, 41), (31, 31)]
+    sigmas = [6.0, 7.0, 8.0]
+
+    local_energy = []
+    mean_amplitude = []
+
+    for ksize in sizes:
+        for theta in range(8):
+            theta = theta / 8 * np.pi
+            for sigma in sigmas:
+                g_kernel = cv2.getGaborKernel(ksize, sigma, theta, 12.0, 0.6, 0, ktype=cv2.CV_32F)
+                filtered_image = cv2.filter2D(image, cv2.CV_8UC3, g_kernel)
+                ret, thresholded_image = cv2.threshold(filtered_image, 127, 255, cv2.THRESH_BINARY)
+
+                local_energy.append(sum(sum(np.square(thresholded_image.astype(float)))))
+                mean_amplitude.append(sum(sum(np.abs(thresholded_image.astype(float)))))
+
+    image_features = local_energy + mean_amplitude
+    return image_features
+
+
+def process_images():
     annotation = pd.read_csv('duhovky/iris_annotation.csv')
-    print(annotation)
 
     images_dict = {}
     masks_dict = {}
@@ -127,20 +156,35 @@ def read_images():
         img = imread(file)
 
         if not img is None:
-            image, mask = daugman_normalizaiton(img, row, 60, 360)
+            # ------ Rubbersheet Image and Mask transformation -----
 
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            image = cv2.equalizeHist(image)
-
-            images_dict[row['image']] = image
-
-            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-            masks_dict[row['image']] = mask
+            image, mask = daugman_rubbersheet_normalization(img, row, 60, 360)
 
             # plt.imshow(image, cmap='gray')
             # plt.show()
             # plt.imshow(mask, cmap='gray')
             # plt.show()
+
+            # ------ Histogram Equalization-------------------------
+
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            image = cv2.equalizeHist(image)
+
+            # plt.imshow(image, cmap='gray')
+            # plt.show()
+
+            images_dict[row['image']] = image
+            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+            masks_dict[row['image']] = mask
+
+            # ------ Trying different parameters --------------------
+
+            # filtered_image = apply_gabor_filter((41, 41), 6.0, 1/2*np.pi, 11.0, 0.5, image)
+            # filtered_image1 = apply_gabor_filter((41, 41), 6.0, 1/4*np.pi, 8.0, 0.5, image)
+            # filtered_image2 = apply_gabor_filter((41, 41), 5.0, 3/4*np.pi, 9.0, 0.4, image)
+            # filtered_image2 = apply_gabor_filter((41, 41), 6.0, 0, 8.0, 0.5, image)
+
+            # ------ Create gabor filter bank for the image --------
 
             image_features = create_gabor_filter_bank(image)
             gabor_filters_bank_dict[row['image']] = image_features
@@ -149,8 +193,8 @@ def read_images():
     masks = pd.DataFrame(masks_dict.items(), columns=['image', 'bytes'])
     gabor_filters_bank = pd.DataFrame(gabor_filters_bank_dict.items(), columns=['image', 'bytes'])
 
-    images.to_pickle('cartesian_images.csv')
-    masks.to_pickle('cartesian_masks.csv')
+    # images.to_pickle('cartesian_images.csv')
+    # masks.to_pickle('cartesian_masks.csv')
     gabor_filters_bank.to_pickle('gabor_filter_bank.csv')
 
 
@@ -236,7 +280,11 @@ def create_true_pairs(images):
 
 
 def main():
-    # read_images()
+    #  ----------------- Zadanie 3 ----------------------
+    # Read and normalize images + Extract features
+    # process_images()
+
+    #  ----------------- Zadanie 4 ----------------------
 
     images = pd.read_pickle('cartesian_images.csv')
     # print(images.head())
@@ -253,6 +301,18 @@ def main():
     # gabor_filter_bank = pd.read_pickle('gabor_filter_bank.csv')
     # print(gabor_filter_bank.head())
 
+    # cnn_features = extract_feautures_cnn_vgg(images, masks)
+    # cnn_features.to_pickle("cnn_features_vgg.csv")
+    # cnn_features = pd.read_pickle('cnn_features_vgg.csv')
+
+    cnn_features = extract_feautures_cnn_resnet(images, masks)
+    cnn_features.to_pickle("cnn_features_resnet.csv")
+    cnn_features = pd.read_pickle('cnn_features_resnet.csv')
+
+    # hog_features = extract_features_hog()
+    # hog_features.to_pickle("hog_features.csv")
+    # hog_features = pd.read_pickle('hog_features.csv')
+
     # true_pairs_df = create_true_pairs(images)
     # true_pairs_df.to_csv('true_pairs.csv',index=False)
     # impostor_pairs_df = create_impostor_pairs(images)
@@ -262,8 +322,9 @@ def main():
     impostor_pairs_df = pd.read_csv('impostor_pairs.csv')
     print(len(true_pairs_df))
 
-    # evaluate_with_svm(gabor_filter_bank, true_pairs_df, impostor_pairs_df)
     evaluate_with_hamming(images, masks, true_pairs_df, impostor_pairs_df)
+    # evaluate_with_svm(gabor_filter_bank, true_pairs_df, impostor_pairs_df, "GaborFilters")
+    evaluate_with_svm(cnn_features, true_pairs_df, impostor_pairs_df, "CNN")
 
 
 main()
